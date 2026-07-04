@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MTS Pocket Office</title>
+<link rel="apple-touch-icon" href="icon-512.png">
+<link rel="manifest" href="manifest.json">
+<style>
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;margin:0;background:#f4f6f8;color:#111}
+header{background:#0f3b5f;color:white;padding:18px 16px;text-align:center}
+h1{font-size:22px;margin:0}.sub{font-size:12px;opacity:.9;margin-top:4px}
+.container{padding:14px;max-width:850px;margin:auto}
+.card{background:white;border-radius:14px;padding:14px;margin:10px 0;box-shadow:0 2px 8px rgba(0,0,0,.08)}
+input,select,textarea,button{width:100%;box-sizing:border-box;padding:12px;margin:6px 0;border-radius:10px;border:1px solid #ccc;font-size:15px}
+button{background:#0f3b5f;color:white;border:0;font-weight:600}.secondary{background:#e8eef3;color:#0f3b5f}.danger{background:#b00020}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:8px}.hidden{display:none}.client{border-bottom:1px solid #eee;padding:10px 0}
+.small{font-size:12px;color:#555}.badge{display:inline-block;background:#e8eef3;color:#0f3b5f;border-radius:20px;padding:4px 8px;font-size:12px;margin:2px}
+.copy{background:#f0f0f0;color:#111;margin-top:4px}.nav{display:grid;grid-template-columns:1fr 1fr;gap:8px}.notice{background:#fff7e6;border-left:4px solid #f5a623}
+</style>
+</head>
+<body>
+<header><h1>MTS Pocket Office</h1><div class="sub">Private Client Vault | Author: Amit Mangotra</div></header>
+<div class="container">
+<div id="lockScreen" class="card">
+<h2>Unlock</h2>
+<p class="small">First time master password set karein. Data isi iPhone/browser me encrypted rahega.</p>
+<input id="masterPass" type="password" placeholder="Master Password">
+<button onclick="unlock()">Unlock / Set Password</button>
+</div>
+<div id="app" class="hidden">
+<div class="card"><div class="nav">
+<button onclick="showSection('dashboard')">Dashboard</button><button onclick="showSection('add')">Add Client</button>
+<button onclick="showSection('list')">Client List</button><button onclick="showSection('backup')">Backup/Restore</button>
+</div></div>
+<div id="dashboard" class="section card">
+<h2>Dashboard</h2><input id="search" oninput="renderList()" placeholder="Search name, PAN, mobile, vehicle, policy...">
+<div id="stats"></div><div id="dueList"></div></div>
+<div id="add" class="section card hidden">
+<h2>Add / Update Client</h2><input id="cid" type="hidden"><input id="name" placeholder="Client Name">
+<div class="row"><input id="pan" placeholder="PAN"><input id="mobile" placeholder="Mobile"></div>
+<div class="row"><input id="email" placeholder="Email"><input id="dob" placeholder="DOB"></div>
+<textarea id="passwords" placeholder="Portal passwords / notes"></textarea>
+<h3>Tax</h3><div class="row"><input id="lastAY" placeholder="Last AY"><input id="itrStatus" placeholder="ITR Status"></div><input id="taxFollowup" type="date">
+<h3>Health Insurance</h3><div class="row"><input id="healthCompany" placeholder="Health Company"><input id="healthPolicy" placeholder="Policy No"></div>
+<div class="row"><input id="sumInsured" placeholder="Sum Insured"><input id="healthRenewal" type="date"></div>
+<h3>Vehicle Insurance</h3><div class="row"><input id="vehicleNo" placeholder="Vehicle No"><input id="vehiclePolicy" placeholder="Vehicle Policy No"></div>
+<div class="row"><input id="vehicleCompany" placeholder="Insurance Company"><input id="vehicleExpiry" type="date"></div>
+<div class="row"><input id="pucExpiry" type="date"><input id="fitnessExpiry" type="date"></div>
+<h3>Regular Update / Notes</h3><textarea id="updates" placeholder="Update history / pending work"></textarea>
+<button onclick="saveClient()">Save Client</button><button class="secondary" onclick="clearForm()">Clear</button></div>
+<div id="list" class="section card hidden"><h2>Client List</h2><div id="clientList"></div></div>
+<div id="backup" class="section card hidden"><h2>Backup / Restore</h2>
+<button onclick="downloadBackup()">Download Encrypted Backup</button><input type="file" id="restoreFile" accept=".json">
+<button class="secondary" onclick="restoreBackup()">Restore Backup</button><button class="danger" onclick="lock()">Lock App</button>
+<p class="small">Master password bhool gaye to encrypted data recover nahi hoga.</p></div>
+</div></div>
+<script>
+let db=[],master="",saltKey="mts_pocket_salt",dataKey="mts_pocket_data";
+function b64(buf){return btoa(String.fromCharCode(...new Uint8Array(buf)))} function ub64(str){return Uint8Array.from(atob(str),c=>c.charCodeAt(0))}
+async function getKey(pass,salt){const enc=new TextEncoder();const base=await crypto.subtle.importKey("raw",enc.encode(pass),"PBKDF2",false,["deriveKey"]);return crypto.subtle.deriveKey({name:"PBKDF2",salt,iterations:120000,hash:"SHA-256"},base,{name:"AES-GCM",length:256},false,["encrypt","decrypt"])}
+async function encryptData(obj){let salt=localStorage.getItem(saltKey);if(!salt){let s=crypto.getRandomValues(new Uint8Array(16));salt=b64(s);localStorage.setItem(saltKey,salt)}let iv=crypto.getRandomValues(new Uint8Array(12));let key=await getKey(master,ub64(salt));let data=new TextEncoder().encode(JSON.stringify(obj));let ct=await crypto.subtle.encrypt({name:"AES-GCM",iv},key,data);return JSON.stringify({iv:b64(iv),ct:b64(ct)})}
+async function decryptData(raw,pass){let salt=localStorage.getItem(saltKey);if(!raw)return [];let obj=JSON.parse(raw);let key=await getKey(pass,ub64(salt));let pt=await crypto.subtle.decrypt({name:"AES-GCM",iv:ub64(obj.iv)},key,ub64(obj.ct));return JSON.parse(new TextDecoder().decode(pt))}
+async function unlock(){let pass=document.getElementById("masterPass").value;if(!pass){alert("Master password enter karein");return}try{let raw=localStorage.getItem(dataKey);db=raw?await decryptData(raw,pass):[];master=pass;document.getElementById("lockScreen").classList.add("hidden");document.getElementById("app").classList.remove("hidden");renderList();renderStats()}catch(e){alert("Wrong password ya data corrupt.")}}
+async function persist(){localStorage.setItem(dataKey,await encryptData(db));renderList();renderStats()}
+function showSection(id){document.querySelectorAll(".section").forEach(s=>s.classList.add("hidden"));document.getElementById(id).classList.remove("hidden")}
+function val(id){return document.getElementById(id).value.trim()} function setv(id,v){document.getElementById(id).value=v||""}
+function saveClient(){let id=val("cid")||Date.now().toString();let c={id,name:val("name"),pan:val("pan"),mobile:val("mobile"),email:val("email"),dob:val("dob"),passwords:val("passwords"),lastAY:val("lastAY"),itrStatus:val("itrStatus"),taxFollowup:val("taxFollowup"),healthCompany:val("healthCompany"),healthPolicy:val("healthPolicy"),sumInsured:val("sumInsured"),healthRenewal:val("healthRenewal"),vehicleNo:val("vehicleNo"),vehiclePolicy:val("vehiclePolicy"),vehicleCompany:val("vehicleCompany"),vehicleExpiry:val("vehicleExpiry"),pucExpiry:val("pucExpiry"),fitnessExpiry:val("fitnessExpiry"),updates:val("updates")};let i=db.findIndex(x=>x.id===id);if(i>=0)db[i]=c;else db.push(c);persist();clearForm();showSection("list")}
+function editClient(id){let c=db.find(x=>x.id===id);if(!c)return;Object.keys(c).forEach(k=>{if(document.getElementById(k))setv(k,c[k])});showSection("add")}
+function delClient(id){if(confirm("Delete client?")){db=db.filter(x=>x.id!==id);persist()}}
+function clearForm(){["cid","name","pan","mobile","email","dob","passwords","lastAY","itrStatus","taxFollowup","healthCompany","healthPolicy","sumInsured","healthRenewal","vehicleNo","vehiclePolicy","vehicleCompany","vehicleExpiry","pucExpiry","fitnessExpiry","updates"].forEach(x=>setv(x,""))}
+function copyText(t){navigator.clipboard.writeText(t||"");alert("Copied")}
+function esc(s){return (s||"").replaceAll("'","").replaceAll('"',"")}
+function renderList(){let q=(document.getElementById("search")?.value||"").toLowerCase();let list=document.getElementById("clientList");if(!list)return;let arr=db.filter(c=>JSON.stringify(c).toLowerCase().includes(q));list.innerHTML=arr.map(c=>`<div class="client"><b>${c.name||"No Name"}</b><br><span class="badge">PAN: ${c.pan||"-"}</span><span class="badge">Mob: ${c.mobile||"-"}</span><span class="badge">Vehicle: ${c.vehicleNo||"-"}</span><br><button class="copy" onclick="copyText('${esc(c.pan)}')">Copy PAN</button><button class="copy" onclick="copyText('${esc(c.mobile)}')">Copy Mobile</button><button class="copy" onclick="copyText('${esc(c.passwords)}')">Copy Password/Notes</button><button onclick="editClient('${c.id}')">Edit</button><button class="danger" onclick="delClient('${c.id}')">Delete</button></div>`).join("")||"<p>No clients found.</p>"}
+function daysLeft(date){if(!date)return null;let d=new Date(date),today=new Date();today.setHours(0,0,0,0);return Math.ceil((d-today)/(1000*60*60*24))}
+function renderStats(){document.getElementById("stats").innerHTML=`<span class="badge">Total Clients: ${db.length}</span>`;let due=[];db.forEach(c=>{[["Health Renewal",c.healthRenewal],["Vehicle Expiry",c.vehicleExpiry],["PUC Expiry",c.pucExpiry],["Fitness Expiry",c.fitnessExpiry],["Tax Follow-up",c.taxFollowup]].forEach(([label,date])=>{let d=daysLeft(date);if(d!==null&&d<=30)due.push({name:c.name,label,date,d})})});due.sort((a,b)=>a.d-b.d);document.getElementById("dueList").innerHTML="<h3>Due / Regular Updates (30 days)</h3>"+(due.map(x=>`<div class="card notice"><b>${x.name}</b><br>${x.label}: ${x.date} (${x.d} days)</div>`).join("")||"<p>No upcoming dues.</p>")}
+function downloadBackup(){let blob=new Blob([localStorage.getItem(dataKey)||""],{type:"application/json"});let a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="MTS_Pocket_Office_Backup.json";a.click()}
+function restoreBackup(){let f=document.getElementById("restoreFile").files[0];if(!f)return alert("Backup file select karein");let r=new FileReader();r.onload=()=>{localStorage.setItem(dataKey,r.result);alert("Backup restored. App lock/unlock karein.")};r.readAsText(f)}
+function lock(){location.reload()}
+</script>
+</body></html>
